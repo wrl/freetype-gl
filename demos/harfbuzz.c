@@ -39,6 +39,8 @@ texture_atlas_t *atlas;
 vertex_buffer_t * vbuffer;
 mat4 model, view, projection;
 
+time_t fea_mtime = 0;
+
 lo_server osc_in;
 
 const char *text = "Toward kerning";
@@ -72,6 +74,7 @@ static void
 reload_features(void)
 {
 	texture_font_t *f;
+	struct stat sb;
 
 	for (unsigned i = 0; i < NFONTS; i++) {
 		f = fonts[i];
@@ -81,6 +84,20 @@ reload_features(void)
 
 		tf_recreate_hb(f);
 	}
+
+	if (!stat(fea_path, &sb))
+		fea_mtime = sb.st_mtime;
+}
+
+static int
+fea_has_changed(void)
+{
+	struct stat sb;
+
+	if (stat(fea_path, &sb))
+		return 0;
+
+	return sb.st_mtime > fea_mtime;
 }
 
 void render(void);
@@ -230,7 +247,7 @@ enc_handler(const char *path, const char *types, lo_arg **argv, int argc,
 	unsigned idx = argv[0]->i;
 	int delta = argv[1]->i;
 
-	frame_deltas[idx] += delta;
+	frame_deltas[idx] -= delta;
 }
 
 
@@ -240,12 +257,20 @@ void display( GLFWwindow* window )
 
 	while (lo_server_recv_noblock(osc_in, 0) > 0);
 
-	for (i = 0; i < 4; i++) {
-		if (frame_deltas[i] == 0)
-			continue;
+	if (fea_has_changed()) {
+		reload_features();
+		render();
 
-		clobber_bits(i, frame_deltas[i]);
-		frame_deltas[i] = 0;
+		for (i = 0; i < 4; i++)
+			frame_deltas[i] = 0;
+	} else {
+		for (i = 0; i < 4; i++) {
+			if (frame_deltas[i] == 0)
+				continue;
+
+			clobber_bits(i, frame_deltas[i]);
+			frame_deltas[i] = 0;
+		}
 	}
 
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
