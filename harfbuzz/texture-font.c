@@ -125,6 +125,44 @@ texture_glyph_delete( texture_glyph_t *self )
     free( self );
 }
 
+// ------------------------------------------------------ table lookup func ---
+static void
+tr_destroy(void *ctx)
+{
+}
+
+static hb_blob_t *
+table_ref(hb_face_t *face, hb_tag_t tag, void *ctx)
+{
+	texture_font_t *self = ctx;
+	unsigned length;
+	void *data;
+
+	data = frs_lookup_table(self->frs_state, tag, &length);
+
+	if (!data)
+		return NULL;
+
+	return hb_blob_create(data, length, HB_MEMORY_MODE_READONLY, NULL, tr_destroy);
+}
+
+int
+tf_recreate_hb(texture_font_t *self)
+{
+	if (self->hb_face)
+		hb_face_destroy(self->hb_face);
+	self->hb_face = hb_face_create_for_tables(table_ref, self, NULL);
+
+	if (self->hb_ft_font)
+		hb_font_destroy(self->hb_ft_font);
+
+	self->hb_ft_font = hb_font_create(self->hb_face);
+
+	hb_font_set_scale(self->hb_ft_font,
+			self->size * self->hres * 64,
+			self->size * 64);
+}
+
 // ------------------------------------------------------ texture_font_init ---
 static int
 texture_font_init(texture_font_t *self)
@@ -160,8 +198,9 @@ texture_font_init(texture_font_t *self)
     if (!texture_font_load_face(self, self->size * 100.f, &library))
         return -1;
 
-    /* Set harfbuzz font */
-    self->hb_ft_font = hb_ft_font_create( self->ft_face, NULL );
+	self->frs_state = frs_new(self->filename);
+
+	tf_recreate_hb(self);
 
     return 0;
 }

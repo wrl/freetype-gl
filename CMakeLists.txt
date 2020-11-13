@@ -28,8 +28,8 @@ option(freetype-gl_WITH_GLEW
 option(freetype-gl_WITH_GLAD "Use the GLAD gl loader" OFF)
 option(freetype-gl_USE_VAO "Use a VAO to render a vertex_buffer instance (required for forward compatible OpenGL 3.0 contexts)" OFF)
 option(freetype-gl_BUILD_DEMOS "Build the freetype-gl example programs" ON)
-option(freetype-gl_BUILD_APIDOC "Build the freetype-gl API documentation" ON)
-option(freetype-gl_BUILD_HARFBUZZ "Build the freetype-gl harfbuzz support (experimental)" OFF)
+option(freetype-gl_BUILD_APIDOC "Build the freetype-gl API documentation" OFF)
+option(freetype-gl_BUILD_HARFBUZZ "Build the freetype-gl harfbuzz support (experimental)" ON)
 option(freetype-gl_BUILD_MAKEFONT "Build the makefont tool" ON)
 option(freetype-gl_BUILD_TESTS "Build the tests" ON)
 

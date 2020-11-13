@@ -126,6 +126,16 @@ typedef struct texture_glyph_t
 
 
 
+// ----------------------------------------------------------- fea-rs stuff ---
+
+typedef struct frs_state frs_state_t;
+
+extern frs_state_t *frs_new(const char *ttf_path);
+extern void frs_destroy(frs_state_t *);
+extern uint8_t *frs_lookup_table(frs_state_t *, uint32_t tag, unsigned *size);
+extern int frs_merge_features(frs_state_t *, const char *fea_path);
+extern void frs_clobber_bits(frs_state_t *, unsigned idx, int16_t delta);
+
 /**
  *  Texture font structure.
  */
@@ -207,7 +217,10 @@ typedef struct texture_font_t
     /**
      * Harfbuzz font
      */
+    hb_face_t * hb_face;
     hb_font_t * hb_ft_font;
+
+	frs_state_t *frs_state;
 
     /**
      * This field is simply used to compute a default line spacing (i.e., the
@@ -259,6 +272,8 @@ typedef struct texture_font_t
     float underline_thickness;
 
 } texture_font_t;
+
+int tf_recreate_hb(texture_font_t *);
 
 
 

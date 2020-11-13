@@ -12,6 +12,9 @@
 #include <math.h>
 #include <string.h>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "freetype-gl.h"
 #include "mat4.h"
 #include "shader.h"
@@ -20,6 +23,8 @@
 #include "screenshot-util.h"
 
 #include <GLFW/glfw3.h>
+
+#include <lo/lo.h>
 
 
 /* google this */
@@ -34,35 +39,112 @@ texture_atlas_t *atlas;
 vertex_buffer_t * vbuffer;
 mat4 model, view, projection;
 
-const char *text = "صِف خَلقَ خَودِ كَمِثلِ الشَمسِ إِذ بَزَغَت — يَحظى الضَجيعُ بِها نَجلاءَ مِعطارِ";
-const char *font_filename      = "fonts/amiri-regular.ttf";
-const hb_direction_t direction = HB_DIRECTION_RTL;
-const hb_script_t script       = HB_SCRIPT_ARABIC;
-const char *language           = "ar";
+lo_server osc_in;
 
+const char *text = "Toward kerning";
+const char *font_filename      = "/home/wrl/work/google/plex/IBM-Plex-Sans/sources/masters/master_ttf/IBM Plex Sans-Regular.ttf";
+const char *fea_path = "/home/wrl/work/google/plex/IBM-Plex-Sans/sources/masters/IBM Plex Sans-Regular.ufo/features.min.fea";
+const hb_direction_t direction = HB_DIRECTION_LTR;
+const hb_script_t script       = HB_SCRIPT_LATIN;
+const char *language           = "en";
+
+
+void
+dbg_font(texture_font_t *f)
+{
+	unsigned int x_ppem, y_ppem;
+	int x_scale, y_scale;
+
+	hb_font_get_ppem(f->hb_ft_font, &x_ppem, &y_ppem);
+	hb_font_get_scale(f->hb_ft_font, &x_scale, &y_scale);
+
+	printf("[%u %u] [%d %d]\n",
+		x_ppem, y_ppem, x_scale, y_scale);
+}
 
 // ------------------------------------------------------------------- init ---
-void init( void )
+#define NFONTS 1
+
+texture_font_t *fonts[NFONTS];
+typedef struct { float x,y,z, u,v, r,g,b,a, shift, gamma; } vertex_t;
+
+static void
+reload_features(void)
 {
-    size_t i, j;
+	texture_font_t *f;
+
+	for (unsigned i = 0; i < NFONTS; i++) {
+		f = fonts[i];
+
+		if (frs_merge_features(f->frs_state, fea_path))
+			continue;
+
+		tf_recreate_hb(f);
+	}
+}
+
+void render(void);
+
+static void
+clobber_bits(unsigned idx, int16_t delta)
+{
+	texture_font_t *f;
+
+	for (unsigned i = 0; i < NFONTS; i++) {
+		f = fonts[i];
+
+		frs_clobber_bits(f->frs_state, idx, delta);
+		tf_recreate_hb(f);
+	}
+
+	render();
+}
+
+void
+init(void)
+{
+    size_t i;
+	int size = 76;
 
     atlas = texture_atlas_new( 512, 512, 3 );
-    texture_font_t *fonts[20];
-    for ( i=0; i< 20; ++i )
+    for ( i=0; i< NFONTS; ++i )
     {
-        fonts[i] =  texture_font_new_from_file(atlas, 12+i, font_filename),
+        fonts[i] =  texture_font_new_from_file(atlas, size+(i * 4), font_filename),
         texture_font_load_glyphs(fonts[i], text, language );
     }
 
+	reload_features();
 
-    typedef struct { float x,y,z, u,v, r,g,b,a, shift, gamma; } vertex_t;
     vbuffer = vertex_buffer_new( "vertex:3f,tex_coord:2f,"
                                 "color:4f,ashift:1f,agamma:1f" );
+    glGenTextures( 1, &atlas->id );
+    glClearColor(1,1,1,1);
+    glEnable( GL_BLEND );
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+    glBindTexture( GL_TEXTURE_2D, atlas->id );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, atlas->width, atlas->height,
+                  0, GL_RGB, GL_UNSIGNED_BYTE, atlas->data );
+    shader = shader_load("shaders/text.vert", "shaders/text.frag");
+    mat4_set_identity( &projection );
+    mat4_set_identity( &model );
+    mat4_set_identity( &view );
+}
+
+void
+render(void)
+{
+    size_t i, j;
+
+	vertex_buffer_clear(vbuffer);
 
     /* Create a buffer for harfbuzz to use */
     hb_buffer_t *buffer = hb_buffer_create();
 
-    for (i=0; i < 20; ++i)
+    for (i=0; i < NFONTS; ++i)
     {
         hb_buffer_set_language( buffer,
                                 hb_language_from_string(language, strlen(language)) );
@@ -81,7 +163,7 @@ void init( void )
         float gamma = 1.0;
         float shift = 0.0;
         float x = 0;
-        float y = 600 - i * (10+i) - 15;
+        float y = 600 - i * (45+i) - 360;
         float width = 0.0;
         float hres = fonts[i]->hres;
         for (j = 0; j < glyph_count; ++j)
@@ -133,28 +215,39 @@ void init( void )
         hb_buffer_reset(buffer);
     }
 
-    glClearColor(1,1,1,1);
-    glEnable( GL_BLEND );
-    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-    glGenTextures( 1, &atlas->id );
-    glBindTexture( GL_TEXTURE_2D, atlas->id );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, atlas->width, atlas->height,
-                  0, GL_RGB, GL_UNSIGNED_BYTE, atlas->data );
     vertex_buffer_upload( vbuffer );
-    shader = shader_load("shaders/text.vert", "shaders/text.frag");
-    mat4_set_identity( &projection );
-    mat4_set_identity( &model );
-    mat4_set_identity( &view );
+	hb_buffer_destroy(buffer);
 }
 
 
 // ---------------------------------------------------------------- display ---
+int16_t frame_deltas[4] = {0, 0, 0, 0};
+
+static int
+enc_handler(const char *path, const char *types, lo_arg **argv, int argc,
+		lo_message data, void *user_data)
+{
+	unsigned idx = argv[0]->i;
+	int delta = argv[1]->i;
+
+	frame_deltas[idx] += delta;
+}
+
+
 void display( GLFWwindow* window )
 {
+	unsigned i;
+
+	while (lo_server_recv_noblock(osc_in, 0) > 0);
+
+	for (i = 0; i < 4; i++) {
+		if (frame_deltas[i] == 0)
+			continue;
+
+		clobber_bits(i, frame_deltas[i]);
+		frame_deltas[i] = 0;
+	}
+
     glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
     glUseProgram( shader );
@@ -187,10 +280,30 @@ void reshape( GLFWwindow* window, int width, int height )
 // --------------------------------------------------------------- keyboard ---
 void keyboard( GLFWwindow* window, int key, int scancode, int action, int mods )
 {
-    if ( key == GLFW_KEY_ESCAPE && action == GLFW_PRESS )
-    {
+	if (action != GLFW_PRESS)
+		return;
+
+	switch (key) {
+	case GLFW_KEY_ESCAPE:
+	case GLFW_KEY_Q:
         glfwSetWindowShouldClose( window, GL_TRUE );
-    }
+		break;
+
+	case GLFW_KEY_R:
+		reload_features();
+		render();
+
+		break;
+
+	case GLFW_KEY_MINUS: clobber_bits(0, -10); break;
+	case GLFW_KEY_EQUAL: clobber_bits(0, 10); break;
+
+	case GLFW_KEY_LEFT_BRACKET:  clobber_bits(1, -10); break;
+	case GLFW_KEY_RIGHT_BRACKET: clobber_bits(1, 10); break;
+
+	default:
+		break;
+	}
 }
 
 
@@ -199,7 +312,6 @@ void error_callback( int error, const char* description )
 {
     fputs( description, stderr );
 }
-
 
 // ------------------------------------------------------------------- main ---
 int main( int argc, char **argv )
@@ -227,6 +339,14 @@ int main( int argc, char **argv )
 
     glfwWindowHint( GLFW_VISIBLE, GL_TRUE );
     glfwWindowHint( GLFW_RESIZABLE, GL_FALSE );
+
+	osc_in = lo_server_new("42424", NULL);
+	if (!osc_in) {
+		puts("couldn't create OSC server!");
+		return 1;
+	}
+
+	lo_server_add_method(osc_in, "/monome/enc/delta", "ii", enc_handler, NULL);
 
     window = glfwCreateWindow( 800, 600, argv[0], NULL, NULL );
 
@@ -256,6 +376,7 @@ int main( int argc, char **argv )
 #endif
 
     init();
+	render();
 
     glfwShowWindow( window );
     reshape( window, 800, 600 );
